@@ -1,0 +1,11 @@
+[SQLDataBase]
+  Server = "localhost"
+  Port = 5432
+  Database = "navi"
+  ApplicationName = "service-template"
+  PoolSize = 5
+
+[ServerOpt]
+  ReadTimeout = "5s"
+  WriteTimeout = "5s"
+  IdleTimeout = "5s"

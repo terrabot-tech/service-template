@@ -1,0 +1,157 @@
+# namespace created for separate ours pods,servies and etc. from others
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sender
+
+# here in base 64 hidden user "registry_svc" from our gitlab 
+# add this user to you project (settings/members in gitlab) as Developer
+# otherwise cluster will throw error when pulling you image
+---
+apiVersion: v1
+kind: Secret
+metadata:
+ name: gitlab-registry-secret
+ namespace: platform
+data:
+ .dockerconfigjson: ew0KICAiYXV0aHMiOiB7DQogICAgImdpdC53aWxkYmVycmllcy5ydTo0NTY3Ijogew0KICAgICAgImF1dGgiOiAiY21WbmFYTjBjbmxmYzNaak9uTTBXbE5JVDJkSWQwYzNZdz09Ig0KICAgIH0NCiAgfQ0KfQ==
+type: kubernetes.io/dockerconfigjson
+
+#configmap for application
+---
+apiVersion: v1
+data:
+  config.toml: |-
+    [SQLDataBase]
+      Server = "localhost"
+      Port = 5432
+      Database = "db"
+      ApplicationName = "service-template"
+      PoolSize = 5
+
+    [ServerOpt]
+      ReadTimeout = "5s"
+      WriteTimeout = "5s"
+      IdleTimeout = "5s"
+kind: ConfigMap
+metadata:
+  name: service-template-config
+  namespace: platform
+
+# Deployment is description how-to update you image and set it in the cluster 
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+   name: service-template-deployment
+   namespace: platform
+spec:
+# how many pods your will run
+   replicas: 1
+# template same as pod description 
+   template:
+     metadata:
+# prometheus metrics
+       annotations:
+         prometheus.io/scrape: "true"
+         prometheus.io/probe: "true"
+         prometheus.io/port: "8080"
+         prometheus.io/path: "/metrics"
+       labels:
+# your pod labels - this label you must set as selector in Service
+         run: service-template-pod
+     spec:
+# affinity and Antiaffinity are about node selecting
+# if you want your pods to run on different nodes add this
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: run 
+                  operator: In
+                  values:
+                  - service-template-pod
+              topologyKey: rack
+# describe your docker containers
+      containers:
+# your microservice image 
+       - name: service-template-image
+         image: gitlab.com/terrabot/service-template/:dev_test
+# limit resources for your application
+         resources:
+            requests:
+              memory: "30Mi"
+              cpu: "100m"
+            limits:
+              memory: "50Mi"
+              cpu: "200m"
+         imagePullPolicy: Always
+# mount secret for logopass
+         volumeMounts:
+         - name: logpass
+           mountPath: "/etc/scrt/service-template/"
+           readOnly: true
+         - name: config
+           mountPath: /config
+# ports that are exposed by your docker image
+         ports:
+           - containerPort: 8181
+# check status ready of your application 
+         livenessProbe:
+           httpGet:
+             path: /health
+             port: 8181
+# 3sec after container start
+# and every 3sec check
+           initialDelaySeconds: 3
+           periodSeconds: 3
+# grpc-proxy for etcd usage
+# if you use leader election you also need it
+       - name: grpc-proxy
+         image: gitlab.com/infrastructure/images/grpc-proxy:1.0.0
+         ports:
+           - containerPort: 23790
+             protocol: TCP
+# pull gitlab secret to allow docker
+# to pull images from your repository
+      imagePullSecrets:
+       - name: gitlab-registry-secret
+# secret for logopass
+      volumes:
+      - name: logpass
+        secret:
+          secretName: service-template-secret
+      - name: config
+        configMap:
+          name: service-template-config
+
+
+# service exposes your pods to outer world
+# service is persistent (your pods are NOT persistent they may change ip)
+---
+apiVersion: v1
+kind: Service
+metadata:
+# service name
+# your path to this dev service will be service-template.platform.svc.k8s.develop/
+# <service>.<namespace>.svc.k8s.<cluster(develop|qa|prod)>
+  name: service-template
+  namespace: platform
+  labels:
+    name: service-template-service
+spec:
+  type: ClusterIP
+  ports:
+    - protocol: TCP
+      name: http
+# port that will be reached from outer world
+      port: 80
+# port that our pod exposes
+      targetPort: 8181
+# how to find our pods (find all pods that have label with property "run: service-template-pod")
+  selector:
+    run: service-template-pod
