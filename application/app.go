@@ -44,9 +44,6 @@ func (app *Application) initRoutes() {
 	app.r.Handle("/metrics", promhttp.Handler()).Methods(http.MethodGet)
 
 	// Маршруты API v1
-	// Notifications маршруты
-	app.r.Path("/api/v1/notifications").Queries("userId", "{userId:[0-9]+}").HandlerFunc(app.AddHeaders(app.NotificationsHandler))
-	app.r.Path("/api/v1/notifications/{id:[0-9]+}/watched").HandlerFunc(app.AddHeaders(app.NotificationsHandler))
 }
 
 // Start application
