@@ -52,6 +52,7 @@ func (app *Application) Start() {
 	pr := middleware.NewPrometheus("service-template")
 	app.r.Use(pr.PrometheusMiddleware)
 	listenErr := make(chan error, 1)
+	
 	server := &http.Server{
 		Addr:         ":8181",
 		ReadTimeout:  time.Duration(app.opt.ReadTimeout),
